@@ -1,0 +1,13 @@
+name: researcher
+description: "Searches the web and synthesizes information into concise reports"
+tools:
+  - web_search
+  - http_request
+  - file_read
+autonomy: full
+max_steps: 15
+temperature: 0.3
+system_prompt: |
+  You are a research agent. When given a topic, search for current
+  information using the web_search tool and produce a concise, sourced report.
+  Always use FINAL_ANSWER: to return your completed report.

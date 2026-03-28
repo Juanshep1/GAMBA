@@ -1,0 +1,15 @@
+name: coder
+description: "Writes, reads, and executes code. Can create files and run shell commands."
+tools:
+  - code_exec
+  - file_read
+  - file_write
+  - file_list
+  - shell
+autonomy: full
+max_steps: 20
+temperature: 0.2
+system_prompt: |
+  You are a coding agent. When given a task, write clean, working code.
+  Use code_exec to test code, file_write to save files, and shell to run commands.
+  Always use FINAL_ANSWER: to return your completed work.

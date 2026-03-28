@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gamba"
+version = "0.1.0"
+description = "Lightweight mobile-first multi-agent framework"
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.9.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=0.50.0"]
+telegram = ["python-telegram-bot>=21.0"]
+discord = ["discord.py>=2.3"]
+web = ["starlette>=0.36.0", "uvicorn>=0.27.0"]
+search = ["duckduckgo-search>=5.0"]
+all = ["gamba[tui,telegram,discord,web,search]"]
+
+[project.scripts]
+gamba = "gamba.cli:main"

@@ -1,0 +1,56 @@
+/* GAMBA TUI Styles */
+
+Screen {
+    background: $surface;
+}
+
+Header {
+    background: $primary-darken-3;
+    color: $text;
+}
+
+Footer {
+    background: $primary-darken-3;
+}
+
+AgentListPanel {
+    dock: left;
+    width: 24;
+    border-right: solid $surface-lighten-2;
+    padding: 1 1;
+    background: $surface-darken-1;
+}
+
+AgentListPanel Label {
+    margin: 0 0;
+    padding: 0 0;
+}
+
+#activity {
+    height: 1fr;
+    border-bottom: solid $surface-lighten-2;
+    padding: 0 1;
+    scrollbar-size: 1 1;
+}
+
+#chat-input {
+    dock: bottom;
+    margin: 1 1;
+    border: solid $primary;
+}
+
+#chat-input:focus {
+    border: solid $accent;
+}
+
+#main-area {
+    width: 1fr;
+}
+
+#status-bar {
+    dock: bottom;
+    height: 1;
+    background: $surface-darken-2;
+    padding: 0 1;
+    color: $text-muted;
+}
