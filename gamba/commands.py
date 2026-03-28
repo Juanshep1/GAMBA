@@ -41,6 +41,8 @@ HELP_TEXT = """
 [bold]/provider default <name>[/] Set default provider
 [bold]/model[/]                 Show current default model
 [bold]/model set <model>[/]     Change default model
+[bold]/models[/]                Browse and select from available models
+[bold]/models <provider>[/]     Browse models for a specific provider (ollama/openrouter)
 [bold]/scan[/]                  Scan for local AI models
 [bold]/interface[/]             List enabled interfaces
 [bold]/interface enable <name>[/]  Enable an interface (telegram/discord/web)
@@ -87,6 +89,9 @@ async def handle_command(
 
         elif cmd == "/model":
             return _cmd_model(config, arg1, arg2)
+
+        elif cmd == "/models":
+            return await _cmd_models(config, arg1)
 
         elif cmd == "/scan":
             return await _cmd_scan()
@@ -378,6 +383,218 @@ def _cmd_model(config: Config, action: str, rest: str) -> str:
         pconfig.default_model = model
         save_config(config)
         return f"[green]Default model set to: {model}[/]"
+
+
+async def _cmd_models(config: Config, provider_filter: str = "") -> str:
+    """Browse and select from available models across all providers."""
+    import aiohttp
+
+    all_models: list[dict] = []
+    errors: list[str] = []
+
+    # --- Fetch Ollama models ---
+    if (not provider_filter or provider_filter == "ollama") and "ollama" in config.providers:
+        pconfig = config.providers["ollama"]
+        base_url = pconfig.base_url or "http://localhost:11434"
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(f"{base_url}/api/tags") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("models", []):
+                            name = m.get("name", "")
+                            size = m.get("size", 0)
+                            size_str = f"{size / 1e9:.1f}GB" if size > 0 else ""
+                            details = m.get("details", {})
+                            params = details.get("parameter_size", "")
+                            quant = details.get("quantization_level", "")
+                            family = details.get("family", "")
+                            all_models.append({
+                                "provider": "ollama",
+                                "id": name,
+                                "name": name,
+                                "size": size_str,
+                                "params": params,
+                                "quant": quant,
+                                "family": family,
+                                "context": "",
+                                "price": "free (local)",
+                            })
+        except Exception as e:
+            errors.append(f"Ollama: {e}")
+
+    # --- Fetch OpenRouter models ---
+    if (not provider_filter or provider_filter == "openrouter") and "openrouter" in config.providers:
+        pconfig = config.providers["openrouter"]
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            headers = {}
+            if pconfig.api_key:
+                headers["Authorization"] = f"Bearer {pconfig.api_key}"
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get("https://openrouter.ai/api/v1/models") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("data", []):
+                            model_id = m.get("id", "")
+                            name = m.get("name", model_id)
+                            ctx = m.get("context_length", "")
+                            pricing = m.get("pricing", {})
+                            prompt_price = pricing.get("prompt", "0")
+                            try:
+                                price_per_m = float(prompt_price) * 1_000_000
+                                price_str = f"${price_per_m:.2f}/M tok" if price_per_m > 0 else "free"
+                            except (ValueError, TypeError):
+                                price_str = ""
+                            all_models.append({
+                                "provider": "openrouter",
+                                "id": model_id,
+                                "name": name,
+                                "size": "",
+                                "params": "",
+                                "quant": "",
+                                "family": "",
+                                "context": str(ctx) if ctx else "",
+                                "price": price_str,
+                            })
+        except Exception as e:
+            errors.append(f"OpenRouter: {e}")
+
+    # --- Fetch HuggingFace models ---
+    if (not provider_filter or provider_filter == "huggingface") and "huggingface" in config.providers:
+        pconfig = config.providers["huggingface"]
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            headers = {}
+            if pconfig.api_token:
+                headers["Authorization"] = f"Bearer {pconfig.api_token}"
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get("https://router.huggingface.co/v1/models") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("data", []):
+                            model_id = m.get("id", "")
+                            all_models.append({
+                                "provider": "huggingface",
+                                "id": model_id,
+                                "name": model_id,
+                                "size": "",
+                                "params": "",
+                                "quant": "",
+                                "family": "",
+                                "context": "",
+                                "price": "free tier",
+                            })
+        except Exception as e:
+            errors.append(f"HuggingFace: {e}")
+
+    if not all_models:
+        msg = "[yellow]No models found.[/]"
+        if errors:
+            msg += "\n" + "\n".join(f"  [red]{e}[/]" for e in errors)
+        return msg
+
+    # --- Display with pagination ---
+    PAGE_SIZE = 15
+    total = len(all_models)
+    current_page = 0
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+
+    # Get current default
+    default_pconfig = config.providers.get(config.default_provider)
+    current_model = default_pconfig.default_model if default_pconfig else ""
+
+    while True:
+        start = current_page * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total)
+        page_models = all_models[start:end]
+
+        lines = [f"[bold cyan]Available Models[/] [dim](page {current_page + 1}/{total_pages}, {total} total)[/]\n"]
+        lines.append(f"  [dim]Current: [cyan]{current_model or 'not set'}[/] ({config.default_provider})[/]\n")
+
+        for i, m in enumerate(page_models):
+            num = start + i + 1
+            provider_tag = f"[dim][{m['provider']}][/]"
+            active = " [green]<<<[/]" if m["id"] == current_model else ""
+
+            detail_parts = []
+            if m["params"]:
+                detail_parts.append(m["params"])
+            if m["size"]:
+                detail_parts.append(m["size"])
+            if m["quant"]:
+                detail_parts.append(m["quant"])
+            if m["context"]:
+                detail_parts.append(f"ctx:{m['context']}")
+            if m["price"]:
+                detail_parts.append(m["price"])
+            details = " | ".join(detail_parts)
+
+            lines.append(f"  [bold]{num:3d}.[/] {m['name']} {provider_tag}{active}")
+            if details:
+                lines.append(f"       [dim]{details}[/]")
+
+        lines.append("")
+        nav_parts = []
+        if current_page > 0:
+            nav_parts.append("[bold]p[/]=prev")
+        if current_page < total_pages - 1:
+            nav_parts.append("[bold]n[/]=next")
+        nav_parts.append("[bold]#[/]=select")
+        nav_parts.append("[bold]q[/]=cancel")
+        nav_parts.append("[bold]/<search>[/]=filter")
+        lines.append(f"  {' | '.join(nav_parts)}")
+
+        console.print("\n".join(lines))
+
+        try:
+            choice = Prompt.ask("  ")
+        except (KeyboardInterrupt, EOFError):
+            return "\n[dim]Cancelled[/]"
+
+        choice = choice.strip().lower()
+
+        if choice == "q" or choice == "":
+            return "[dim]No changes made[/]"
+        elif choice == "n" and current_page < total_pages - 1:
+            current_page += 1
+            continue
+        elif choice == "p" and current_page > 0:
+            current_page -= 1
+            continue
+        elif choice.startswith("/"):
+            # Filter/search
+            search = choice[1:].lower()
+            all_models = [m for m in all_models if search in m["id"].lower() or search in m["name"].lower()]
+            total = len(all_models)
+            total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+            current_page = 0
+            if not all_models:
+                return f"[yellow]No models matching '{search}'[/]"
+            continue
+        else:
+            # Try to parse as number
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < total:
+                    selected = all_models[idx]
+                    # Set the model
+                    provider_name = selected["provider"]
+                    model_id = selected["id"]
+
+                    # Update config
+                    if provider_name in config.providers:
+                        config.providers[provider_name].default_model = model_id
+                    if provider_name != config.default_provider:
+                        if Confirm.ask(f"  Also switch default provider to [cyan]{provider_name}[/]?", default=True):
+                            config.default_provider = provider_name
+                    save_config(config)
+                    return f"\n[green]Selected: {model_id}[/] [dim]({provider_name})[/]"
+                else:
+                    console.print(f"  [yellow]Invalid number. Enter 1-{total}[/]")
+            except ValueError:
+                console.print(f"  [yellow]Enter a number, n/p to navigate, / to search, q to cancel[/]")
 
 
 async def _cmd_scan() -> str:
