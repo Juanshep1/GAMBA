@@ -20,6 +20,72 @@ AVAILABLE_TOOLS = [
 ]
 
 
+def _onboarding() -> None:
+    """Ask the user about their goals to tailor the setup."""
+    console.print("[bold]A few quick questions to set things up right:\n[/]")
+
+    # Q1: Experience level
+    console.print("  [bold]1.[/] How comfortable are you with AI agents?")
+    console.print("     [1] New to this  [2] I've used ChatGPT/Claude  [3] I've built agents before")
+    level = Prompt.ask("    ", choices=["1", "2", "3"], default="2")
+
+    if level == "1":
+        console.print("\n  [cyan]No worries! GAMBA will set up sensible defaults for you.[/]")
+        console.print("  [dim]Your agents will work autonomously - just type what you need.[/]\n")
+    elif level == "3":
+        console.print("\n  [cyan]Nice. You'll have full control over agents, tools, and providers.[/]\n")
+
+    # Q2: Primary use case
+    console.print("  [bold]2.[/] What will you mainly use GAMBA for?")
+    console.print("     [1] Research & information gathering")
+    console.print("     [2] Coding & building things")
+    console.print("     [3] Both research and coding")
+    console.print("     [4] Something else")
+    use_case = Prompt.ask("    ", choices=["1", "2", "3", "4"], default="3")
+    console.print()
+
+    # Q3: Privacy preference
+    console.print("  [bold]3.[/] Privacy preference?")
+    console.print("     [1] Cloud is fine (faster, more models)")
+    console.print("     [2] Local only (private, no data leaves device)")
+    console.print("     [3] Mix of both (local when possible, cloud as fallback)")
+    privacy = Prompt.ask("    ", choices=["1", "2", "3"], default="3")
+    console.print()
+
+    # Q4: Device usage
+    console.print("  [bold]4.[/] Where will you run GAMBA most?")
+    console.print("     [1] This device only")
+    console.print("     [2] Multiple devices (phone + laptop)")
+    console.print("     [3] Server / always-on")
+    device = Prompt.ask("    ", choices=["1", "2", "3"], default="1")
+    console.print()
+
+    # Summarize and store preferences
+    use_labels = {"1": "research", "2": "coding", "3": "research + coding", "4": "general"}
+    privacy_labels = {"1": "cloud", "2": "local-only", "3": "hybrid"}
+
+    console.print(Panel.fit(
+        f"  Use case: [cyan]{use_labels.get(use_case, 'general')}[/]\n"
+        f"  Privacy: [cyan]{privacy_labels.get(privacy, 'hybrid')}[/]\n"
+        f"  Multi-device: [cyan]{'yes' if device == '2' else 'no'}[/]",
+        title="Got it",
+        border_style="green",
+    ))
+    console.print()
+
+    # Store for later steps
+    _onboarding.use_case = use_case
+    _onboarding.privacy = privacy
+    _onboarding.level = level
+    _onboarding.multi_device = device == "2"
+
+# Default values
+_onboarding.use_case = "3"
+_onboarding.privacy = "3"
+_onboarding.level = "2"
+_onboarding.multi_device = False
+
+
 def run_orientation() -> Config:
     """Run the first-time setup wizard. Returns the generated config."""
     console.print()
@@ -29,6 +95,9 @@ def run_orientation() -> Config:
         border_style="cyan",
     ))
     console.print()
+
+    # Onboarding questions - understand the user
+    _onboarding()
 
     # Step 0: Auto-detect platform and local models
     config = Config()
@@ -149,13 +218,22 @@ def _setup_providers(config: Config, detection: dict) -> Config:
         console.print()
 
     # Cloud providers
+    privacy = getattr(_onboarding, "privacy", "3")
+
+    if privacy == "2" and local_providers:
+        console.print("[dim]Privacy: local-only selected. Skipping cloud providers.[/]\n")
+        if not config.default_provider and config.providers:
+            config.default_provider = next(iter(config.providers))
+        return config
+
     console.print("Cloud providers:")
     console.print("  [1] OpenRouter [dim](200+ models, pay-per-use)[/]")
     console.print("  [2] HuggingFace [dim](free tier available)[/]")
     console.print("  [3] Skip cloud [dim](local only)[/]")
     console.print()
 
-    choice = Prompt.ask("Select cloud provider", choices=["1", "2", "3"], default="1")
+    default_cloud = "3" if (privacy == "2" and local_providers) else "1"
+    choice = Prompt.ask("Select cloud provider", choices=["1", "2", "3"], default=default_cloud)
 
     if choice == "1":
         api_key = Prompt.ask("OpenRouter API key")
@@ -212,18 +290,69 @@ def _setup_interfaces(config: Config) -> Config:
 def _setup_agents(config: Config) -> None:
     console.print("[bold]Step 3: Sub-Agents[/]\n")
 
-    if Confirm.ask("Use default agents (researcher + coder)?", default=True):
-        console.print("[green]Using example agents from agents/ directory.[/]\n")
+    use_case = getattr(_onboarding, "use_case", "3")
+
+    # Smart defaults based on onboarding
+    if use_case == "1":
+        default_agents = "researcher (web search + reports)"
+    elif use_case == "2":
+        default_agents = "coder (code + shell + files)"
+    else:
+        default_agents = "researcher + coder"
+
+    console.print(f"  [dim]Based on your answers, recommended agents: [cyan]{default_agents}[/][/]\n")
+
+    if Confirm.ask("Use recommended agents?", default=True):
+        # Create tailored agents based on use case
+        if use_case in ("1", "3"):
+            save_agent(AgentConfig(
+                name="researcher",
+                description="Searches the web and synthesizes information into concise reports",
+                tools=["web_search", "video_search", "http_request", "file_read", "file_write"],
+                max_steps=15, temperature=0.3,
+                system_prompt="You are a research agent. Search for current information and produce concise, sourced reports. Always use FINAL_ANSWER: to return your report.",
+            ), config.agents_dir)
+            console.print("  [green]Created: researcher[/]")
+
+        if use_case in ("2", "3"):
+            save_agent(AgentConfig(
+                name="coder",
+                description="Writes, reads, and executes code. Can create files and run shell commands.",
+                tools=["code_exec", "file_read", "file_write", "file_list", "shell"],
+                max_steps=20, temperature=0.2,
+                system_prompt="You are a coding agent. Write clean, working code. Use code_exec to test, file_write to save, shell to run commands. Always use FINAL_ANSWER: to return your work.",
+            ), config.agents_dir)
+            console.print("  [green]Created: coder[/]")
+
+        if use_case in ("1", "3"):
+            save_agent(AgentConfig(
+                name="analyst",
+                description="Analyzes data, summarizes findings, and provides insights",
+                tools=["web_search", "code_exec", "file_read", "file_write"],
+                max_steps=15, temperature=0.4,
+                system_prompt="You are an analysis agent. When given data or topics, analyze them thoroughly and provide structured insights. Use code_exec for calculations. Always use FINAL_ANSWER: to return your analysis.",
+            ), config.agents_dir)
+            console.print("  [green]Created: analyst[/]")
+
+        console.print()
+
+        if Confirm.ask("Add a custom agent too?", default=False):
+            _create_custom_agent(config)
         return
 
-    console.print("[dim]Define your sub-agents. You can add more later in agents/[/]\n")
+    console.print("[dim]Define your sub-agents. You can add more later with /agent add[/]\n")
 
+    _create_custom_agent(config)
+
+
+def _create_custom_agent(config: Config) -> None:
+    """Interactive custom agent creation loop."""
     while True:
-        name = Prompt.ask("Agent name")
-        description = Prompt.ask("Description (what does this agent do?)")
+        name = Prompt.ask("  Agent name")
+        description = Prompt.ask("  What does this agent do?")
 
-        console.print(f"\nAvailable tools: {', '.join(AVAILABLE_TOOLS)}")
-        tools_str = Prompt.ask("Tools (comma-separated)", default="web_search, file_read")
+        console.print(f"\n  Available tools: [dim]{', '.join(AVAILABLE_TOOLS)}[/]")
+        tools_str = Prompt.ask("  Tools (comma-separated)", default="web_search, file_read")
         tools = [t.strip() for t in tools_str.split(",") if t.strip()]
 
         agent = AgentConfig(
@@ -232,9 +361,9 @@ def _setup_agents(config: Config) -> None:
             tools=tools,
         )
         save_agent(agent, config.agents_dir)
-        console.print(f"[green]Created agents/{name}.yaml[/]\n")
+        console.print(f"  [green]Created: {name}[/]\n")
 
-        if not Confirm.ask("Create another agent?", default=False):
+        if not Confirm.ask("  Create another agent?", default=False):
             break
 
 

@@ -198,10 +198,14 @@ async def _simple_console(bus: "MessageBus", orchestrator: "Orchestrator") -> No
     console.print(Panel.fit(
         "[bold cyan]GAMBA[/] - Console Mode\n"
         f"[dim]Agents: {', '.join(orchestrator.agents.keys()) or 'none (direct mode)'}[/]\n"
-        "[dim]Type 'quit' to exit[/]",
+        "[dim]Type /help for commands, /quit to exit[/]",
         border_style="cyan",
     ))
     console.print()
+
+    from gamba.commands import is_command, handle_command
+    from gamba.config import load_config
+    active_config = load_config()
 
     response_received = asyncio.Event()
     last_response = ""
@@ -269,6 +273,19 @@ async def _simple_console(bus: "MessageBus", orchestrator: "Orchestrator") -> No
             break
 
         if not prompt.strip():
+            continue
+
+        # Handle slash commands
+        if is_command(prompt):
+            result = await handle_command(prompt, active_config, orchestrator, bus)
+            if result == "__QUIT__":
+                console.print("[dim]Goodbye![/]")
+                break
+            elif result == "__CLEAR__":
+                console.clear()
+            else:
+                console.print(result)
+                console.print()
             continue
 
         response_received.clear()

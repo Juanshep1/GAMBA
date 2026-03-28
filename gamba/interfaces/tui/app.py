@@ -109,6 +109,7 @@ if HAS_TEXTUAL:
             log.write(f"[bold cyan]GAMBA[/] ready. [{_ts()}]")
             agents = ", ".join(self.orchestrator.agents.keys()) or "none"
             log.write(f"[dim]Agents: {agents}[/]")
+            log.write(f"[dim]Type /help for commands[/]")
             log.write("")
 
             self.bus.subscribe(EventType.ORCHESTRATOR_RESPONSE, self._on_response)
@@ -125,11 +126,30 @@ if HAS_TEXTUAL:
 
         async def on_input_submitted(self, event: Input.Submitted) -> None:
             from gamba.core.message_bus import EventType
+            from gamba.commands import is_command, handle_command
+            from gamba.config import load_config
+
             text = event.value.strip()
             if not text:
                 return
             event.input.clear()
             log = self.query_one("#activity", RichLog)
+
+            # Handle slash commands
+            if is_command(text):
+                log.write(f"[{_ts()}] [bold]>[/] {text}")
+                active_config = load_config()
+                result = await handle_command(text, active_config, self.orchestrator, self.bus)
+                if result == "__QUIT__":
+                    self.exit()
+                elif result == "__CLEAR__":
+                    log.clear()
+                    log.write(f"[bold cyan]GAMBA[/] log cleared. [{_ts()}]")
+                else:
+                    log.write(result)
+                    log.write("")
+                return
+
             log.write(f"[{_ts()}] [bold]You:[/] {text}")
             await self.bus.emit(EventType.USER_INPUT, source="tui", message=text)
 
