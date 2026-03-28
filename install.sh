@@ -5,7 +5,7 @@
 #            iOS (a-Shell/iSH)
 #
 #  Usage:
-#    bash <(curl -sL https://raw.githubusercontent.com/juanshephard/GAMBA/main/install.sh)
+#    bash <(curl -sL https://raw.githubusercontent.com/Juanshep1/GAMBA/main/install.sh)
 #
 #  Or if already cloned:
 #    bash install.sh
@@ -110,9 +110,9 @@ elif [ -f "pyproject.toml" ] && grep -q "gamba" pyproject.toml 2>/dev/null; then
     INSTALL_DIR="$(pwd)"
     echo -e "${DIM}  Using current directory${NC}"
 else
-    git clone https://github.com/juanshephard/GAMBA.git "$INSTALL_DIR" 2>/dev/null || {
+    git clone https://github.com/Juanshep1/GAMBA.git "$INSTALL_DIR" 2>/dev/null || {
         echo -e "${YELLOW}  Clone failed - if repo is private, clone manually first${NC}"
-        echo -e "${YELLOW}  git clone https://github.com/juanshephard/GAMBA.git ~/gamba${NC}"
+        echo -e "${YELLOW}  git clone https://github.com/Juanshep1/GAMBA.git ~/gamba${NC}"
         exit 1
     }
     cd "$INSTALL_DIR"
